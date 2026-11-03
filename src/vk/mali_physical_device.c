@@ -628,6 +628,11 @@ static const struct vk_device_extension_table mali_device_extensions = {
     * atomic its scope and semantics in NIR, which both compilers take. No
     * availability and visibility chains. */
    .KHR_vulkan_memory_model = true,
+
+   /* Instance divisors of any value up to maxVertexAttribDivisor: the
+    * power-of-two and non-power-of-two attribute encodings
+    * (mali_cmd_state.h), the same on v9 and v11. */
+   .EXT_vertex_attribute_divisor = true,
 };
 
 /*
@@ -1109,15 +1114,21 @@ get_features(struct vk_features *f, uint32_t arch)
       .vulkanMemoryModel = true,
       .vulkanMemoryModelDeviceScope = true,
       .vulkanMemoryModelAvailabilityVisibilityChains = false,
+
+      /* VK_EXT_vertex_attribute_divisor. Divisor 0 reads the first element
+       * for every instance (mali_cmd_state.h). */
+      .vertexAttributeInstanceRateDivisor = true,
+      .vertexAttributeInstanceRateZeroDivisor = true,
    };
 
    get_descriptor_indexing_features(f, arch);
 }
 
-/* The sample counts we report. Rendering is single-sampled (mali_fb.c) and
- * vkCmdResolveImage does nothing, so only 1 is offered. That is below the
- * minimum Vulkan requires (1|4 for the framebuffer and sampledImage limits).
- * Back to 1|4 when multisampled rendering and resolve exist. */
+/* The sample counts we report. Rendering is single-sampled (mali_fb.c), so
+ * only 1 is offered. That is below the minimum Vulkan requires (1|4 for the
+ * framebuffer and sampledImage limits). Back to 1|4 when multisampled
+ * rendering exists (vkCmdResolveImage resolves colour on v9 and later,
+ * mali_cmd_image.c). */
 #define MALI_SUPPORTED_SAMPLE_COUNTS VK_SAMPLE_COUNT_1_BIT
 
 /* Sample counts for a format of the given bytes per pixel: 1 and 4
@@ -1422,6 +1433,10 @@ get_properties(const struct mali_physical_device *pdev, const char *name,
       /* VK_KHR_push_descriptor. panvk's value; ARMSX2 needs 7 (its TFX
        * texture set). */
       .maxPushDescriptors = 32,
+
+      /* VK_EXT_vertex_attribute_divisor: the 32-bit Divisor D field and the
+       * 5-bit Divisor R field cover every 32-bit divisor. */
+      .maxVertexAttribDivisor = UINT32_MAX,
       .maxPerStageDescriptorSamplers = MALI_MAX_DESCS_PER_TYPE,
       .maxPerStageDescriptorUniformBuffers = MALI_MAX_DESCS_PER_TYPE,
       .maxPerStageDescriptorStorageBuffers = MALI_MAX_DESCS_PER_TYPE,
