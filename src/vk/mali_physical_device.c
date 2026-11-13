@@ -585,6 +585,12 @@ static const struct vk_device_extension_table mali_device_extensions = {
    .EXT_tooling_info = true,
    /* The SPIR-V parser skips non-semantic instructions. */
    .KHR_shader_non_semantic_info = true,
+
+   /* Inline uniform blocks: the set layout, pools, writes, copies and
+    * templates hold the bytes in the set's own slots, behind a Buffer
+    * descriptor the shader reads as a uniform buffer (mali_descriptor_set.c,
+    * and the v7 lowering). */
+   .EXT_inline_uniform_block = true,
 };
 
 /*
@@ -1031,6 +1037,10 @@ get_features(struct vk_features *f, uint32_t arch)
 
       /* VK_KHR_zero_initialize_workgroup_memory */
       .shaderZeroInitializeWorkgroupMemory = true,
+
+      /* VK_EXT_inline_uniform_block. No update-after-bind sets. */
+      .inlineUniformBlock = true,
+      .descriptorBindingInlineUniformBlockUpdateAfterBind = false,
    };
 
    get_descriptor_indexing_features(f, arch);
@@ -1428,6 +1438,15 @@ get_properties(const struct mali_physical_device *pdev, const char *name,
        * attachment to read. */
       .dynamicRenderingLocalReadDepthStencilAttachments = true,
       .dynamicRenderingLocalReadMultisampledAttachments = false,
+
+      /* VK_EXT_inline_uniform_block: 4 KiB a block, 16 blocks a stage and a
+       * set (each one is a uniform buffer to the shader; v7 takes 223). */
+      .maxInlineUniformBlockSize = 4096,
+      .maxPerStageDescriptorInlineUniformBlocks = 16,
+      .maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks = 16,
+      .maxDescriptorSetInlineUniformBlocks = 16,
+      .maxDescriptorSetUpdateAfterBindInlineUniformBlocks = 16,
+      .maxInlineUniformTotalSize = 16 * 4096,
    };
 
    /*
