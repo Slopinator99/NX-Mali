@@ -1,24 +1,44 @@
-# malisx2
+# NX-Mali
 
-A Vulkan driver for Arm Mali GPUs that talks to Arm's **kbase** kernel
-driver, the one Android phones and handhelds ship. It is written for one
-application, the [ARMSX2](https://github.com/ARMSX2/ARMSX2) PlayStation 2
-emulator, which loads it in place of the system driver. It implements what
-ARMSX2 and the Android Vulkan loader use; every other entry point logs and
-fails.
+NX-Mali (v0.0.2) is a Vulkan driver for Arm Mali GPUs (kbase kernel driver, command-stream
+frontend), aimed at running **Nintendo Switch games in the
+[Eden](https://git.eden-emu.dev/eden-emu/eden) emulator** on Android devices
+and handhelds that ship Mali GPUs. It is installed like any custom GPU driver
+in Eden: a zip with the library and a `meta.json`.
 
-Target: Mali-G615 (Mesa architecture v11, command-stream frontend), on the
-Anbernic RG 477V. The same library serves every GPU of the architectures
-it is built for, picked by the GPU's architecture when the device is
-created: v11 (Mali-G615, G715), v10 (Mali-G310, G510, G610, G710;
-command-stream frontend), v9 (Mali-G57, G68, G77, G78, G78AE; job
-manager) and v7 (Mali-G31, G51, G52, G76; job manager). Most of these have
-not been tried by us. Per-part values (tile buffer sizes, anisotropic
-filtering, the Bifrost compiler's instruction forms) come from Mesa's GPU
-model table. Shaders are compiled with Mesa's kraid compiler (Mesa's
-Bifrost compiler on v7); the driver is built on Mesa's shared Vulkan
-runtime. Midgard, the arch 6 Bifrost parts (G71, G72) and arch 12 on
-(G720 and later) are not served.
+## Origin
+
+This project is a fork of [bmdhacks/malisx2](https://github.com/bmdhacks/malisx2),
+an independent, clean-room Vulkan driver for Mali that was first written for a
+different emulator. What we build on is its foundation: a panvk-style driver on
+Mesa's shared Vulkan runtime and the Panfrost/kraid shader compiler, its own
+kbase/CSF queue, memory and command-stream layer, and the Android HAL
+packaging. What this fork changes is the target: the work here is making the
+driver correct and complete for what Eden's Vulkan renderer needs (indirect
+draws, mutable-format views, Maxwell-style topologies, queries and conditional
+rendering, ...), rather than the entry points of the original application.
+Entry points the driver does not implement yet log and fail.
+
+Target hardware so far: Mali-G615 (Mesa architecture v11, CSF), tested on an
+Anbernic RG 557 (MediaTek MT6897, Android 14).
+
+## Testing
+
+Correctness is driven by [edenprobe](https://github.com/scarletnx/edenprobe),
+a homebrew program of hardware probes whose cases are judged against what a
+real console does. The workflow: run its graphics suites in Eden on the stock
+Arm driver (the reference) and on this driver, diff the reports case by case,
+and fix the cases that fail only here. Fixes found this way so far:
+format-mismatched image views, and `vkCmdDrawIndirect` /
+`vkCmdDrawIndexedIndirect`.
+
+## Status
+
+Work in progress. Open areas, from the edenprobe diff: quads and some
+index-buffer cases, conditional rendering and query results, stencil/early-Z
+with shader depth writes, bindless textures, a few formats. There is also an
+unresolved rare single-frame flicker; the diagnostic code for it is still
+compiled in.
 
 ## Building
 
@@ -45,11 +65,11 @@ Android (arm64, API level 29) is a cross build with the NDK r28c at
 
     meson setup build-android --cross-file cross/android-aarch64.ini
     ninja -C build-android
-    llvm-strip -o libvulkan_malisx2.so build-android/src/libvulkan_malisx2.so
+    llvm-strip -o libvulkan_nxmali.so build-android/src/libvulkan_nxmali.so
 
 The result is a Vulkan HAL module (`HMI`) with 16 KiB-aligned segments,
-needing only `libc`, `libm`, `libdl` and `liblog`. ARMSX2 loads it as an
-adrenotools driver pack: the library plus a `meta.json` in a zip.
+needing only `libc`, `libm`, `libdl` and `liblog`. Eden loads it as a custom
+GPU driver: the library plus a `meta.json` in a zip.
 
 ROCKNIX (arm64 Linux, RK3566/RK3568 devices running ROCKNIX's
 `mali_kbase`) is a cross build against the toolchain of a ROCKNIX build
@@ -79,13 +99,10 @@ is part of this repository or linked into the library.
 
 ## Measurement
 
-`MALISX2_MEASURE=timing` (or `draws`, `csf`, `both`, `shaders`, `cpuprof`;
-on Android the property `debug.malisx2.measure`) makes the driver write GPU
-timestamps per render pass, dispatch and draw, captures of the submitted
-command streams, or the shaders it compiles. `cpuprof` writes no files:
-each application thread logs, about once a second, how much CPU time it
-spent inside the driver and in which entry points. It wraps the device's
-entry points, so it adds a little time of its own to every call.
+`MALISX2_MEASURE=timing` (or `draws`, `csf`, `both`, `shaders`; on Android
+the property `debug.malisx2.measure`) makes the driver write GPU timestamps
+per render pass, dispatch and draw, captures of the submitted command
+streams, or the shaders it compiles.
 
 ## Rules
 

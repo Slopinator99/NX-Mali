@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# malisx2: Vulkan driver for Arm Mali (kbase kernel driver).
+# NX-Mali (fork of malisx2): Vulkan driver for Arm Mali (kbase kernel driver).
 #
 # Layout:
 #   src/           the driver
@@ -12,9 +12,9 @@
 #   cross/         meson cross files
 
 project(
-  'malisx2',
+  'nx-mali',
   ['c', 'cpp'],
-  version : '0.5.0',
+  version : '0.0.2',
   license : 'MIT',
   meson_version : '>= 1.7.0',
   default_options : [
