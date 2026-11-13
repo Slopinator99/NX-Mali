@@ -479,7 +479,10 @@ static const struct vk_device_extension_table mali_device_extensions = {
 
    /* VMA (ARMSX2's allocator) only asks for a memory budget when this is
     * listed. */
-   .EXT_memory_budget = true,
+   /* Not advertised: with it, Eden replaces its own texture-cache size
+    * estimate with our heapUsage and garbage-collects every frame; without
+    * it Eden behaves as with the stock driver. */
+   .EXT_memory_budget = false,
 
    /* Without it ARMSX2 de-indexes every flat-shaded draw on the CPU to
     * fake a last-vertex convention (up to 3x the vertices) instead of
@@ -487,6 +490,10 @@ static const struct vk_device_extension_table mali_device_extensions = {
     * on v7 it is a bit of each tiler job's Primitive word
     * (mali_jm_cmd_draw_v7.c). */
    .EXT_provoking_vertex = true,
+
+   /* Eden resets its query banks from the host. */
+   .EXT_host_query_reset = true,
+   .KHR_sampler_mirror_clamp_to_edge = true,
 
    /* ARMSX2 pushes its texture set instead of allocating and writing a new
     * descriptor set per draw; every arch shares the same descriptor-set
@@ -910,7 +917,7 @@ get_features(struct vk_features *f, uint32_t arch)
       .tessellationShader = false,
       .sampleRateShading = true,
       .dualSrcBlend = dual_src_blend_for_arch(arch),
-      .logicOp = false,
+      .logicOp = true,
       .multiDrawIndirect = draw_indirect_for_arch(arch),
       .drawIndirectFirstInstance = draw_indirect_for_arch(arch),
       /* Vulkan 1.2's name for VK_KHR_draw_indirect_count. */
@@ -928,7 +935,7 @@ get_features(struct vk_features *f, uint32_t arch)
       .shaderClipDistance = arch == 7 || arch == 10 || arch == 11,
       .fillModeNonSolid = false,
       .depthBounds = false,
-      .wideLines = false,
+      .wideLines = true,
       .largePoints = true,
       .alphaToOne = false,
       .multiViewport = false,
@@ -973,6 +980,14 @@ get_features(struct vk_features *f, uint32_t arch)
 
       /* Vulkan 1.1: multiview is required of a 1.1 device. */
       .multiview = true,
+
+      /* Eden: host query reset (vkResetQueryPool, mali_query.c), the sampler
+       * mirror-clamp mode (mali_sampler.c has it), and gl_BaseVertex,
+       * gl_BaseInstance and a gl_DrawID that is always 0 (mali_shader.c
+       * lower_sysvals). */
+      .hostQueryReset = true,
+      .samplerMirrorClampToEdge = true,
+      .shaderDrawParameters = true,
 
       /*
        * Vulkan 1.2's required features (with timelineSemaphore, hostQueryReset
@@ -1384,7 +1399,7 @@ get_properties(const struct mali_physical_device *pdev, const char *name,
       .maxCombinedClipAndCullDistances = 0,
       .discreteQueuePriorities = 2,
       .pointSizeRange = { 1.0f, 1024.0f },
-      .lineWidthRange = { 1.0f, 1.0f },
+      .lineWidthRange = { 1.0f, 8.0f },
       .pointSizeGranularity = 0.0625f,
       .lineWidthGranularity = 0.0f,
       .strictLines = true,

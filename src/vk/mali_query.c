@@ -206,6 +206,25 @@ put_result(void *out, unsigned index, bool wide, uint64_t v)
       ((uint32_t *)out)[index] = (uint32_t)MIN2(v, (uint64_t)UINT32_MAX);
 }
 
+/* VK_EXT_host_query_reset / Vulkan 1.2 vkResetQueryPool: the CPU zeroes the
+ * counters and the availability words (the pool is CPU-uncached device
+ * memory the GPU reads in place). */
+VKAPI_ATTR void VKAPI_CALL
+MALI_PER_ARCH(ResetQueryPool)(VkDevice _device, VkQueryPool _pool, uint32_t firstQuery,
+                              uint32_t queryCount)
+{
+   VK_FROM_HANDLE(mali_query_pool, pool, _pool);
+
+   for (uint32_t i = 0; i < queryCount; i++) {
+      const uint32_t q = firstQuery + i;
+      volatile uint64_t *v = (volatile uint64_t *)(pool->val_cpu + (uint64_t)q * pool->val_stride);
+      for (uint32_t c = 0; c < pool->val_count; c++)
+         v[c] = 0;
+      *mali_query_avail_cpu(pool, q) = 0;
+   }
+   __atomic_thread_fence(__ATOMIC_RELEASE);
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL
 MALI_PER_ARCH(GetQueryPoolResults)(VkDevice _device, VkQueryPool _pool, uint32_t firstQuery,
                                    uint32_t queryCount, size_t dataSize, void *pData,

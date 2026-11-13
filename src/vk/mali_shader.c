@@ -190,6 +190,15 @@ lower_sysvals(nir_builder *b, nir_intrinsic_instr *intr, void *data)
       val = nir_vec(b, comps, intr->def.num_components);
       break;
    }
+   case nir_intrinsic_load_base_vertex:
+      /* firstVertex for a direct draw, vertexOffset for an indexed one:
+       * the same word the driver keeps for first_vertex. */
+      val = load_sysval(b, graphics, bit_size, vs.first_vertex);
+      break;
+   case nir_intrinsic_load_draw_id:
+      /* No multi-draw extension: always the first (only) draw. */
+      val = nir_imm_zero(b, 1, bit_size);
+      break;
    case nir_intrinsic_load_first_vertex:
       val = load_sysval(b, graphics, bit_size, vs.first_vertex);
       break;
