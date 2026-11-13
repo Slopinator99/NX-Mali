@@ -36,11 +36,10 @@
 
 /*
  * The Vulkan version each back half implements (mali_physical_device.c
- * api_version_for_arch). Vulkan 1.2 needs timeline semaphores, which the
- * runtime emulates on the CSF sync type's GPU multi-wait (v11); the job
- * manager (v7, v9) has none, so those stay at 1.1. Vulkan 1.3's required
- * features are all reported (mali_physical_device.c get_features). The
- * instance reports the highest.
+ * api_version_for_arch). The command-stream back half (v10, v11) has what
+ * Vulkan 1.2 and 1.3 require (mali_physical_device.c get_features); the job
+ * manager (v7, v9) has not been checked against them, so it stays at 1.1.
+ * The instance reports the highest.
  */
 #define MALI_API_VERSION_CSF VK_MAKE_API_VERSION(0, 1, 3, VK_HEADER_VERSION)
 #define MALI_API_VERSION_JM VK_MAKE_API_VERSION(0, 1, 1, VK_HEADER_VERSION)
