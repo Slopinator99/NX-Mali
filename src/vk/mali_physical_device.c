@@ -563,6 +563,11 @@ static const struct vk_device_extension_table mali_device_extensions = {
 
    /* Private data slots: the runtime implements them (vk_object.c). */
    .EXT_private_data = true,
+
+   /* FAIL_ON_PIPELINE_COMPILE_REQUIRED and EARLY_RETURN_ON_FAILURE are
+    * honoured (mali_pipeline.c); the runtime takes the pipeline cache's
+    * EXTERNALLY_SYNCHRONIZED flag. */
+   .EXT_pipeline_creation_cache_control = true,
 };
 
 /*
@@ -1000,6 +1005,9 @@ get_features(struct vk_features *f, uint32_t arch)
 
       /* VK_EXT_private_data */
       .privateData = true,
+
+      /* VK_EXT_pipeline_creation_cache_control */
+      .pipelineCreationCacheControl = true,
    };
 
    get_descriptor_indexing_features(f, arch);
