@@ -549,6 +549,11 @@ static const struct vk_device_extension_table mali_device_extensions = {
     * lower_sysvals); and a by-region barrier inside a pass is a draw with a
     * primitive barrier (cmd_fb_barrier). */
    .KHR_dynamic_rendering_local_read = true,
+   /* Memory requirements before the object exists (mali_buffer.c,
+    * mali_image.c), maxBufferSize, LocalSizeId (the runtime's SPIR-V
+    * capabilities follow the feature); pipelines hold a reference to their
+    * layout, so the application may destroy it right after creating them. */
+   .KHR_maintenance4 = true,
 };
 
 /*
@@ -965,6 +970,8 @@ get_features(struct vk_features *f, uint32_t arch)
 
       /* VK_KHR_dynamic_rendering_local_read (the table above). */
       .dynamicRenderingLocalRead = true,
+      /* VK_KHR_maintenance4 */
+      .maintenance4 = true,
    };
 
    get_descriptor_indexing_features(f, arch);
@@ -1326,6 +1333,9 @@ get_properties(const struct mali_physical_device *pdev, const char *name,
       /* VK_KHR_timeline_semaphore: Mesa's emulated timelines
        * (vk_sync_timeline) keep 64-bit values with no limit on the gap. */
       .maxTimelineSemaphoreValueDifference = UINT64_MAX,
+      /* VK_KHR_maintenance4: a buffer has to fit one allocation
+       * (mali_CreateBuffer). */
+      .maxBufferSize = max_alloc,
 
       /* VK_KHR_driver_properties */
       .driverID = VK_DRIVER_ID_ARM_PROPRIETARY,
