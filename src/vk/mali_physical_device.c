@@ -902,6 +902,12 @@ get_descriptor_indexing_features(struct vk_features *f, uint32_t arch)
    f->descriptorBindingPartiallyBound = true;
    f->descriptorBindingVariableDescriptorCount = true;
    f->runtimeDescriptorArray = true;
+   /* Vulkan 1.2's name for having every feature above that its Feature
+    * Requirements list for VK_EXT_descriptor_indexing. */
+   f->descriptorIndexing = true;
+   /* An inline uniform block's bytes are in the set, which the shader reads
+    * in place like the other descriptors (VK_EXT_inline_uniform_block). */
+   f->descriptorBindingInlineUniformBlockUpdateAfterBind = true;
 }
 
 /*
@@ -1088,9 +1094,9 @@ get_features(struct vk_features *f, uint32_t arch)
       /* VK_KHR_zero_initialize_workgroup_memory */
       .shaderZeroInitializeWorkgroupMemory = true,
 
-      /* VK_EXT_inline_uniform_block. No update-after-bind sets. */
+      /* VK_EXT_inline_uniform_block (update after bind:
+       * get_descriptor_indexing_features). */
       .inlineUniformBlock = true,
-      .descriptorBindingInlineUniformBlockUpdateAfterBind = false,
 
       /* VK_EXT_subgroup_size_control */
       .subgroupSizeControl = true,
