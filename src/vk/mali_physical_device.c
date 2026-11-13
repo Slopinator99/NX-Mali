@@ -568,9 +568,6 @@ static const struct vk_device_extension_table mali_device_extensions = {
     * layout, so the application may destroy it right after creating them. */
    .KHR_maintenance4 = true,
 
-   /* Private data slots: the runtime implements them (vk_object.c). */
-   .EXT_private_data = true,
-
    /* FAIL_ON_PIPELINE_COMPILE_REQUIRED and EARLY_RETURN_ON_FAILURE are
     * honoured (mali_pipeline.c); the runtime takes the pipeline cache's
     * EXTERNALLY_SYNCHRONIZED flag. */
@@ -617,12 +614,6 @@ static const struct vk_device_extension_table mali_device_extensions = {
     * compilers lower to plain arithmetic. No product is reported as
     * accelerated. */
    .KHR_shader_integer_dot_product = true,
-
-   /* A buffer's address is set when it is bound (mali_BindBufferMemory2)
-    * and the runtime returns it; shaders reach PhysicalStorageBuffer
-    * pointers as 64-bit global addresses (phys_ssbo_addr_format). No
-    * capture and replay. */
-   .KHR_buffer_device_address = true,
 
    /* The Vulkan memory model: the SPIR-V parser gives every barrier and
     * atomic its scope and semantics in NIR, which both compilers take. No
@@ -1001,18 +992,17 @@ get_features(struct vk_features *f, uint32_t arch)
       .shaderDrawParameters = true,
 
       /*
-       * Vulkan 1.2's required features (with timelineSemaphore, hostQueryReset
-       * and samplerMirrorClampToEdge below). The runtime's framebuffers and
-       * render passes take imageless framebuffers; layouts are not tracked,
-       * so depth and stencil may have their own; uniform buffers are laid
-       * out by the SPIR-V's offsets and strides, whatever the block's rules.
-       * The subgroup operations reported are the basic ones only, which take
-       * no operand of an extended type and have no broadcast, so the last
-       * two hold for every operation there is.
+       * Vulkan 1.2's required features (with timelineSemaphore,
+       * uniformBufferStandardLayout, hostQueryReset and
+       * samplerMirrorClampToEdge elsewhere here). The runtime's framebuffers
+       * and render passes take imageless framebuffers; layouts are not
+       * tracked, so depth and stencil may have their own. The subgroup
+       * operations reported are the basic ones only, which take no operand
+       * of an extended type and have no broadcast, so the last two hold for
+       * every operation there is.
        */
       .imagelessFramebuffer = true,
       .separateDepthStencilLayouts = true,
-      .uniformBufferStandardLayout = true,
       .shaderSubgroupExtendedTypes = true,
       .subgroupBroadcastDynamicId = true,
 
@@ -1082,9 +1072,6 @@ get_features(struct vk_features *f, uint32_t arch)
       /* VK_KHR_maintenance4 */
       .maintenance4 = true,
 
-      /* VK_EXT_private_data */
-      .privateData = true,
-
       /* VK_EXT_pipeline_creation_cache_control */
       .pipelineCreationCacheControl = true,
 
@@ -1110,11 +1097,6 @@ get_features(struct vk_features *f, uint32_t arch)
 
       /* VK_KHR_shader_integer_dot_product */
       .shaderIntegerDotProduct = true,
-
-      /* VK_KHR_buffer_device_address */
-      .bufferDeviceAddress = true,
-      .bufferDeviceAddressCaptureReplay = false,
-      .bufferDeviceAddressMultiDevice = false,
 
       /* VK_KHR_vulkan_memory_model */
       .vulkanMemoryModel = true,
