@@ -591,6 +591,11 @@ static const struct vk_device_extension_table mali_device_extensions = {
     * descriptor the shader reads as a uniform buffer (mali_descriptor_set.c,
     * and the v7 lowering). */
    .EXT_inline_uniform_block = true,
+
+   /* One subgroup size per arch (16, 8 on v7): a required size can only be
+    * that one, and compute workgroups fill whole warps when their width is
+    * a multiple of it, as panvk reports. */
+   .EXT_subgroup_size_control = true,
 };
 
 /*
@@ -1041,6 +1046,10 @@ get_features(struct vk_features *f, uint32_t arch)
       /* VK_EXT_inline_uniform_block. No update-after-bind sets. */
       .inlineUniformBlock = true,
       .descriptorBindingInlineUniformBlockUpdateAfterBind = false,
+
+      /* VK_EXT_subgroup_size_control */
+      .subgroupSizeControl = true,
+      .computeFullSubgroups = true,
    };
 
    get_descriptor_indexing_features(f, arch);
@@ -1447,6 +1456,9 @@ get_properties(const struct mali_physical_device *pdev, const char *name,
       .maxDescriptorSetInlineUniformBlocks = 16,
       .maxDescriptorSetUpdateAfterBindInlineUniformBlocks = 16,
       .maxInlineUniformTotalSize = 16 * 4096,
+
+      /* VK_EXT_subgroup_size_control (sizes after the v7 limits below). */
+      .requiredSubgroupSizeStages = VK_SHADER_STAGE_COMPUTE_BIT,
    };
 
    /*
@@ -1601,6 +1613,12 @@ get_properties(const struct mali_physical_device *pdev, const char *name,
          props->maxPerStageDescriptorUpdateAfterBindStorageImages +
          props->maxPerStageDescriptorUpdateAfterBindInputAttachments;
    }
+
+   /* VK_EXT_subgroup_size_control: the one size there is, on every stage
+    * that has subgroups. */
+   props->minSubgroupSize = props->subgroupSize;
+   props->maxSubgroupSize = props->subgroupSize;
+   props->maxComputeWorkgroupSubgroups = props->maxComputeWorkGroupInvocations / props->subgroupSize;
 
    snprintf(props->deviceName, sizeof(props->deviceName), "%s", name);
    /* The blob reports the device name as driverName too. */
