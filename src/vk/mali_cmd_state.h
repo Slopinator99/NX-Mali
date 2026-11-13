@@ -452,6 +452,7 @@ mali_gfx_fill_sysvals(struct mali_cmd_buffer *cmd, struct mali_graphics_sysvals 
 
    sv->vs.first_vertex = d->first_vertex;
    sv->vs.base_instance = d->base_instance;
+   sv->vs.draw_id = d->draw_id;
    sv->vs.noperspective_varyings = p->bind.noperspective;
 #if PAN_ARCH >= 9
    /* On v7 these words are v7_desc.sets, which the v7 draw fills: BLEND

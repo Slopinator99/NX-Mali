@@ -10,12 +10,12 @@
  * and a draw with no vertices or no instances runs no RUN_IDVS. What the
  * vertex stage reads of the command (the first-vertex and base-instance
  * system values, and the offsets of per-instance attributes, which carry
- * firstInstance x stride as in a direct draw) is stored by the stream
- * into a per-draw copy of the vertex FAU block and of the vertex resource
- * table, so draws in flight never see each other's values. The copies are
- * a ring of at most INDIRECT_RING_BYTES; when a loop has more draws than
- * the ring holds, the stream waits for the draws already started before it
- * reuses a copy.
+ * firstInstance x stride as in a direct draw), and the draw's index in the
+ * call (the draw ID system value), is stored by the stream into a per-draw
+ * copy of the vertex FAU block and of the vertex resource table, so draws in
+ * flight never see each other's values. The copies are a ring of at most
+ * INDIRECT_RING_BYTES; when a loop has more draws than the ring holds, the
+ * stream waits for the draws already started before it reuses a copy.
  */
 
 #include "mali_cmd_draw.h"
@@ -44,13 +44,16 @@ static_assert(offsetof(struct mali_graphics_sysvals, vs.base_instance) ==
               "base_instance follows first_vertex");
 static_assert(MALI_IDVS_SR_INSTANCE_OFFSET == MALI_IDVS_SR_VERTEX_OFFSET + 1,
               "INSTANCE_OFFSET follows VERTEX_OFFSET");
+/* The draw ID is stored alone at the start of its FAU word. */
+static_assert(offsetof(struct mali_graphics_sysvals, vs.draw_id) % MALI_FAU_WORD_SIZE == 0,
+              "draw_id starts an FAU word");
 
-/* Byte offset in the vertex FAU block of the word holding first_vertex and
- * base_instance, -1 if the shader reads neither. */
+/* Byte offset in the vertex FAU block of the sysval word at byte off of
+ * struct mali_graphics_sysvals, -1 if the shader does not read it. */
 static int
-vs_draw_sysval_offset(const struct mali_shader *vs)
+vs_sysval_word_offset(const struct mali_shader *vs, unsigned off)
 {
-   const unsigned w = offsetof(struct mali_graphics_sysvals, vs.first_vertex) / MALI_FAU_WORD_SIZE;
+   const unsigned w = off / MALI_FAU_WORD_SIZE;
    if (!BITSET_TEST(vs->fau.used_sysvals, w))
       return -1;
    unsigned rank = 0;
@@ -177,12 +180,16 @@ draw_indirect(struct mali_cmd_buffer *cmd, bool indexed, uint64_t params, uint32
    }
 
    const struct mali_shader *vs = d->pipeline->vs;
-   const int sv_off = vs_draw_sysval_offset(vs);
+   /* The word holding first_vertex and base_instance, and the draw ID's. */
+   const int sv_off =
+      vs_sysval_word_offset(vs, offsetof(struct mali_graphics_sysvals, vs.first_vertex));
+   const int id_off = vs_sysval_word_offset(vs, offsetof(struct mali_graphics_sysvals, vs.draw_id));
    const uint32_t attribs = instance_attribs(d);
 
    /* One ring entry: [FAU block][resource table][driver set], each part
     * only when it changes from draw to draw. */
-   const uint32_t fau_bytes = sv_off >= 0 ? ALIGN_POT(vs->fau.total_count * 8, 64) : 0;
+   const bool own_fau = sv_off >= 0 || id_off >= 0;
+   const uint32_t fau_bytes = own_fau ? ALIGN_POT(vs->fau.total_count * 8, 64) : 0;
    uint32_t vb_offset = 0, vb_count = 0, drv_count = 0, rt_count = 0;
    uint32_t rt_off = fau_bytes, drv_off = fau_bytes;
    uint32_t entry = fau_bytes;
@@ -208,7 +215,7 @@ draw_indirect(struct mali_cmd_buffer *cmd, bool indexed, uint64_t params, uint32
       for (uint32_t k = 0; k < ring; k++) {
          uint8_t *cpu = (uint8_t *)p.cpu + (uint64_t)k * entry;
          const uint64_t gpu = p.gpu + (uint64_t)k * entry;
-         if (sv_off >= 0)
+         if (own_fau)
             MALI_PER_ARCH(gfx_fau_fill)(vs, &sv, cmd->push_constants,
                                         sizeof(cmd->push_constants), gpu, cpu);
          if (attribs) {
@@ -220,7 +227,7 @@ draw_indirect(struct mali_cmd_buffer *cmd, bool indexed, uint64_t params, uint32
    }
    const uint64_t fau0 = p.gpu | ((uint64_t)vs->fau.total_count << 56);
    const uint64_t srt0 = (p.gpu + rt_off) | rt_count;
-   if (sv_off >= 0)
+   if (own_fau)
       batch_move64(&e, IDVS(FAU_0), fau0);
    if (attribs)
       batch_move64(&e, IDVS(SRT_0), srt0);
@@ -261,6 +268,7 @@ draw_indirect(struct mali_cmd_buffer *cmd, bool indexed, uint64_t params, uint32
    const struct cs_index left = mali_cs_scratch_reg32(b, 6);   /* entries left in the ring */
    const struct cs_index acc = mali_cs_scratch_reg32(b, 7);
    const struct cs_index bit = mali_cs_scratch_reg32(b, 8);
+   const struct cs_index draw_id = mali_cs_scratch_reg32(b, 10);
    const struct cs_index first_instance = cs_reg32(b, IDVS(INSTANCE_OFFSET));
    const bool laps = entry && ring < max_draws;
 
@@ -279,6 +287,8 @@ draw_indirect(struct mali_cmd_buffer *cmd, bool indexed, uint64_t params, uint32
    }
    if (laps)
       cs_move32_to(b, left, ring);
+   if (id_off >= 0)
+      cs_move32_to(b, draw_id, 0);
 
    cs_while(b, MALI_CS_CONDITION_GREATER, count) {
       if (laps) {
@@ -287,7 +297,7 @@ draw_indirect(struct mali_cmd_buffer *cmd, bool indexed, uint64_t params, uint32
          cs_if(b, MALI_CS_CONDITION_EQUAL, left) {
             emit_invalidate_ro(b, cmd->dev->csf->sb.all_iters_mask);
             cs_move64_to(b, base, p.gpu);
-            if (sv_off >= 0)
+            if (own_fau)
                cs_move64_to(b, cs_reg64(b, IDVS(FAU_0)), fau0);
             if (attribs)
                cs_move64_to(b, cs_reg64(b, IDVS(SRT_0)), srt0);
@@ -307,6 +317,8 @@ draw_indirect(struct mali_cmd_buffer *cmd, bool indexed, uint64_t params, uint32
 
       if (sv_off >= 0)
          cs_store(b, cs_reg_tuple(b, IDVS(VERTEX_OFFSET), 2), base, BITFIELD_MASK(2), sv_off);
+      if (id_off >= 0)
+         cs_store32(b, draw_id, base, id_off);
       u_foreach_bit(i, attribs) {
          const struct vk_vertex_attribute_state *a = &d->vi->attributes[i];
          /* The offset a direct draw with this first instance packs
@@ -339,9 +351,11 @@ draw_indirect(struct mali_cmd_buffer *cmd, bool indexed, uint64_t params, uint32
 
       cs_add_imm32(b, count, count, -1);
       cs_add_imm64(b, addr, addr, stride);
+      if (id_off >= 0)
+         cs_add_imm32(b, draw_id, draw_id, 1);
       if (entry) {
          cs_add_imm64(b, base, base, entry);
-         if (sv_off >= 0)
+         if (own_fau)
             cs_add_imm64(b, cs_reg64(b, IDVS(FAU_0)), cs_reg64(b, IDVS(FAU_0)), entry);
          if (attribs)
             cs_add_imm64(b, cs_reg64(b, IDVS(SRT_0)), cs_reg64(b, IDVS(SRT_0)), entry);
@@ -355,7 +369,7 @@ draw_indirect(struct mali_cmd_buffer *cmd, bool indexed, uint64_t params, uint32
     * command's values. */
    d->regs_valid &= ~(BITFIELD64_RANGE(IDVS(INDEX_COUNT), 5) |
                       BITFIELD64_RANGE(IDVS(FAU_0), 2) | BITFIELD64_RANGE(IDVS(SRT_0), 2));
-   if (sv_off >= 0)
+   if (own_fau)
       d->dirty |= MALI_GFX_DIRTY_VS_FAU;
    if (attribs)
       d->dirty |= MALI_GFX_DIRTY_VS_SRT;

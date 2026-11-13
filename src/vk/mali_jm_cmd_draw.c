@@ -512,13 +512,16 @@ draw_indirect(struct mali_cmd_buffer *cmd, const struct idraw_call *call, uint32
       .job = job.gpu,
    };
 
-   /* The draw's own FAU block when the vertex shader reads first_vertex or
-    * base_instance (built as for a draw with both 0; the patch job writes
-    * them), and the next draw builds another. */
-   if (bd->vs_first_vertex || bd->vs_base_instance) {
+   /* The draw's own FAU block when the vertex shader reads first_vertex,
+    * base_instance or the draw ID (built as for a draw with the first two
+    * 0, which the patch job writes, and with this draw's index), and the
+    * next draw builds another. */
+   if (bd->vs_first_vertex || bd->vs_base_instance || bd->vs_draw_id) {
       struct mali_graphics_sysvals sv;
       uint64_t v;
+      d->draw_id = i;
       mali_gfx_fill_sysvals(cmd, &sv);
+      d->draw_id = 0;
       if (!mali_gfx_build_vs_fau(cmd, &sv, &v))
          goto oom;
       env_set_fau(pos_env, v);

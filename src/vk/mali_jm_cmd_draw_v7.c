@@ -1636,16 +1636,19 @@ struct idraw_call {
    bool indexed;
 };
 
-/* The vertex shader's FAU words the patch job writes, if it reads any. */
+/* The vertex shader's FAU words that differ from draw to draw of a call,
+ * if it reads any: the ones the patch job writes, and the draw ID. */
 static bool
 vs_reads_draw_sysvals(const struct mali_shader *vs)
 {
    const unsigned fv = offsetof(struct mali_graphics_sysvals, vs.first_vertex);
    const unsigned bi = offsetof(struct mali_graphics_sysvals, vs.base_instance);
    const unsigned rvo = offsetof(struct mali_graphics_sysvals, vs.raw_vertex_offset);
+   const unsigned id = offsetof(struct mali_graphics_sysvals, vs.draw_id);
    return BITSET_TEST(vs->fau.used_sysvals, fv / MALI_FAU_WORD_SIZE) ||
           BITSET_TEST(vs->fau.used_sysvals, bi / MALI_FAU_WORD_SIZE) ||
-          BITSET_TEST(vs->fau.used_sysvals, rvo / MALI_FAU_WORD_SIZE);
+          BITSET_TEST(vs->fau.used_sysvals, rvo / MALI_FAU_WORD_SIZE) ||
+          BITSET_TEST(vs->fau.used_sysvals, id / MALI_FAU_WORD_SIZE);
 }
 
 /* The address of a vertex shader system value in its FAU block at fau, 0
@@ -1684,7 +1687,11 @@ draw_indirect(struct mali_cmd_buffer *cmd, const struct idraw_call *call, uint32
 
    struct mali_jm_idraw_rec rec;
    memset(&rec, 0, sizeof(rec));
-   if (!prepare_draw(cmd, &di, &dd))
+   /* The draw's index, which its own FAU block carries. */
+   d->draw_id = i;
+   const bool prepared = prepare_draw(cmd, &di, &dd);
+   d->draw_id = 0;
+   if (!prepared)
       goto oom;
    if (own_fau)
       d->dirty |= MALI_GFX_DIRTY_VS_FAU;

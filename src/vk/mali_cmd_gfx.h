@@ -322,6 +322,9 @@ struct mali_gfx_draw_state {
    /* The last values the FAU blocks were built with. */
    int32_t first_vertex;
    uint32_t base_instance;
+   /* gl_DrawID of the FAU blocks built next: 0, but while an indirect draw
+    * path builds a draw's own block (mali_shader.h vs.draw_id). */
+   uint32_t draw_id;
    uint64_t blend_descs[8];         /* fs.blend_descs, from the last blend build */
    uint32_t blend_shader_mask;      /* targets blended by a shader, last blend build */
 

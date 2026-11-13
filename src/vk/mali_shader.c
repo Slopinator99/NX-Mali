@@ -196,8 +196,7 @@ lower_sysvals(nir_builder *b, nir_intrinsic_instr *intr, void *data)
       val = load_sysval(b, graphics, bit_size, vs.first_vertex);
       break;
    case nir_intrinsic_load_draw_id:
-      /* No multi-draw extension: always the first (only) draw. */
-      val = nir_imm_zero(b, 1, bit_size);
+      val = load_sysval(b, graphics, bit_size, vs.draw_id);
       break;
    case nir_intrinsic_load_first_vertex:
       val = load_sysval(b, graphics, bit_size, vs.first_vertex);

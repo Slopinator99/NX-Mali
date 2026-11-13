@@ -994,8 +994,8 @@ get_features(struct vk_features *f, uint32_t arch)
 
       /* Eden: host query reset (vkResetQueryPool, mali_query.c), the sampler
        * mirror-clamp mode (mali_sampler.c has it), and gl_BaseVertex,
-       * gl_BaseInstance and a gl_DrawID that is always 0 (mali_shader.c
-       * lower_sysvals). */
+       * gl_BaseInstance and gl_DrawID (mali_shader.c lower_sysvals; the
+       * indirect draw paths write each draw's ID). */
       .hostQueryReset = true,
       .samplerMirrorClampToEdge = true,
       .shaderDrawParameters = true,
