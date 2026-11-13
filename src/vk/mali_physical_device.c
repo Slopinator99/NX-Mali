@@ -568,9 +568,6 @@ static const struct vk_device_extension_table mali_device_extensions = {
     * layout, so the application may destroy it right after creating them. */
    .KHR_maintenance4 = true,
 
-   /* Private data slots: the runtime implements them (vk_object.c). */
-   .EXT_private_data = true,
-
    /* FAIL_ON_PIPELINE_COMPILE_REQUIRED and EARLY_RETURN_ON_FAILURE are
     * honoured (mali_pipeline.c); the runtime takes the pipeline cache's
     * EXTERNALLY_SYNCHRONIZED flag. */
@@ -618,16 +615,15 @@ static const struct vk_device_extension_table mali_device_extensions = {
     * accelerated. */
    .KHR_shader_integer_dot_product = true,
 
-   /* A buffer's address is set when it is bound (mali_BindBufferMemory2)
-    * and the runtime returns it; shaders reach PhysicalStorageBuffer
-    * pointers as 64-bit global addresses (phys_ssbo_addr_format). No
-    * capture and replay. */
-   .KHR_buffer_device_address = true,
-
    /* The Vulkan memory model: the SPIR-V parser gives every barrier and
     * atomic its scope and semantics in NIR, which both compilers take. No
     * availability and visibility chains. */
    .KHR_vulkan_memory_model = true,
+
+   /* Instance divisors of any value up to maxVertexAttribDivisor: the
+    * power-of-two and non-power-of-two attribute encodings
+    * (mali_cmd_state.h), the same on v9 and v11. */
+   .EXT_vertex_attribute_divisor = true,
 };
 
 /*
@@ -897,6 +893,12 @@ get_descriptor_indexing_features(struct vk_features *f, uint32_t arch)
    f->descriptorBindingPartiallyBound = true;
    f->descriptorBindingVariableDescriptorCount = true;
    f->runtimeDescriptorArray = true;
+   /* Vulkan 1.2's name for having every feature above that its Feature
+    * Requirements list for VK_EXT_descriptor_indexing. */
+   f->descriptorIndexing = true;
+   /* An inline uniform block's bytes are in the set, which the shader reads
+    * in place like the other descriptors (VK_EXT_inline_uniform_block). */
+   f->descriptorBindingInlineUniformBlockUpdateAfterBind = true;
 }
 
 /*
@@ -983,25 +985,24 @@ get_features(struct vk_features *f, uint32_t arch)
 
       /* Eden: host query reset (vkResetQueryPool, mali_query.c), the sampler
        * mirror-clamp mode (mali_sampler.c has it), and gl_BaseVertex,
-       * gl_BaseInstance and a gl_DrawID that is always 0 (mali_shader.c
-       * lower_sysvals). */
+       * gl_BaseInstance and gl_DrawID (mali_shader.c lower_sysvals; the
+       * indirect draw paths write each draw's ID). */
       .hostQueryReset = true,
       .samplerMirrorClampToEdge = true,
       .shaderDrawParameters = true,
 
       /*
-       * Vulkan 1.2's required features (with timelineSemaphore, hostQueryReset
-       * and samplerMirrorClampToEdge below). The runtime's framebuffers and
-       * render passes take imageless framebuffers; layouts are not tracked,
-       * so depth and stencil may have their own; uniform buffers are laid
-       * out by the SPIR-V's offsets and strides, whatever the block's rules.
-       * The subgroup operations reported are the basic ones only, which take
-       * no operand of an extended type and have no broadcast, so the last
-       * two hold for every operation there is.
+       * Vulkan 1.2's required features (with timelineSemaphore,
+       * uniformBufferStandardLayout, hostQueryReset and
+       * samplerMirrorClampToEdge elsewhere here). The runtime's framebuffers
+       * and render passes take imageless framebuffers; layouts are not
+       * tracked, so depth and stencil may have their own. The subgroup
+       * operations reported are the basic ones only, which take no operand
+       * of an extended type and have no broadcast, so the last two hold for
+       * every operation there is.
        */
       .imagelessFramebuffer = true,
       .separateDepthStencilLayouts = true,
-      .uniformBufferStandardLayout = true,
       .shaderSubgroupExtendedTypes = true,
       .subgroupBroadcastDynamicId = true,
 
@@ -1071,9 +1072,6 @@ get_features(struct vk_features *f, uint32_t arch)
       /* VK_KHR_maintenance4 */
       .maintenance4 = true,
 
-      /* VK_EXT_private_data */
-      .privateData = true,
-
       /* VK_EXT_pipeline_creation_cache_control */
       .pipelineCreationCacheControl = true,
 
@@ -1083,9 +1081,9 @@ get_features(struct vk_features *f, uint32_t arch)
       /* VK_KHR_zero_initialize_workgroup_memory */
       .shaderZeroInitializeWorkgroupMemory = true,
 
-      /* VK_EXT_inline_uniform_block. No update-after-bind sets. */
+      /* VK_EXT_inline_uniform_block (update after bind:
+       * get_descriptor_indexing_features). */
       .inlineUniformBlock = true,
-      .descriptorBindingInlineUniformBlockUpdateAfterBind = false,
 
       /* VK_EXT_subgroup_size_control */
       .subgroupSizeControl = true,
@@ -1100,24 +1098,25 @@ get_features(struct vk_features *f, uint32_t arch)
       /* VK_KHR_shader_integer_dot_product */
       .shaderIntegerDotProduct = true,
 
-      /* VK_KHR_buffer_device_address */
-      .bufferDeviceAddress = true,
-      .bufferDeviceAddressCaptureReplay = false,
-      .bufferDeviceAddressMultiDevice = false,
-
       /* VK_KHR_vulkan_memory_model */
       .vulkanMemoryModel = true,
       .vulkanMemoryModelDeviceScope = true,
       .vulkanMemoryModelAvailabilityVisibilityChains = false,
+
+      /* VK_EXT_vertex_attribute_divisor. Divisor 0 reads the first element
+       * for every instance (mali_cmd_state.h). */
+      .vertexAttributeInstanceRateDivisor = true,
+      .vertexAttributeInstanceRateZeroDivisor = true,
    };
 
    get_descriptor_indexing_features(f, arch);
 }
 
-/* The sample counts we report. Rendering is single-sampled (mali_fb.c) and
- * vkCmdResolveImage does nothing, so only 1 is offered. That is below the
- * minimum Vulkan requires (1|4 for the framebuffer and sampledImage limits).
- * Back to 1|4 when multisampled rendering and resolve exist. */
+/* The sample counts we report. Rendering is single-sampled (mali_fb.c), so
+ * only 1 is offered. That is below the minimum Vulkan requires (1|4 for the
+ * framebuffer and sampledImage limits). Back to 1|4 when multisampled
+ * rendering exists (vkCmdResolveImage resolves colour on v9 and later,
+ * mali_cmd_image.c). */
 #define MALI_SUPPORTED_SAMPLE_COUNTS VK_SAMPLE_COUNT_1_BIT
 
 /* Sample counts for a format of the given bytes per pixel: 1 and 4
@@ -1422,6 +1421,10 @@ get_properties(const struct mali_physical_device *pdev, const char *name,
       /* VK_KHR_push_descriptor. panvk's value; ARMSX2 needs 7 (its TFX
        * texture set). */
       .maxPushDescriptors = 32,
+
+      /* VK_EXT_vertex_attribute_divisor: the 32-bit Divisor D field and the
+       * 5-bit Divisor R field cover every 32-bit divisor. */
+      .maxVertexAttribDivisor = UINT32_MAX,
       .maxPerStageDescriptorSamplers = MALI_MAX_DESCS_PER_TYPE,
       .maxPerStageDescriptorUniformBuffers = MALI_MAX_DESCS_PER_TYPE,
       .maxPerStageDescriptorStorageBuffers = MALI_MAX_DESCS_PER_TYPE,

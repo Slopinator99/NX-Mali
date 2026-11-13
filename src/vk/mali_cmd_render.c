@@ -562,6 +562,23 @@ issue_fragment_jobs(struct mali_cmd_buffer *cmd, struct mali_render_state *r,
    cs_bit_clear32(b, sb_mask, sb_mask, next_sb);
    cs_set_state(b, MALI_CS_SET_STATE_TYPE_SB_MASK_STREAM, sb_mask);
 #endif
+
+   /* No occlusion query ends in this pass (cmd_oq_pass_end cleans the
+    * caches before it signals those), but the fragment job still wrote the
+    * render-target pixels. Flush the caches so those writes are visible
+    * in main memory before the job's completion is signalled (the release
+    * fence / a CPU reader of the swapchain dma-buf). Without this the
+    * fence can fire while the pixels are still in the L2/LSC cache, and a
+    * present then reads a stale/black frame (the one-frame blank). The
+    * proprietary driver forces a cache maintenance step at RUN_FRAGMENT
+    * for the same reason (see the panvk comment on IMPLICIT_OTHERS_INV). */
+   if (!util_dynarray_num_elements(&cmd->oq_done, uint64_t)) {
+      struct cs_index wb_flush_id = mali_cs_scratch_reg32(b, 8);
+      cs_move32_to(b, wb_flush_id, 0);
+      cs_flush_caches(b, MALI_CS_FLUSH_MODE_CLEAN, MALI_CS_FLUSH_MODE_CLEAN,
+                      MALI_CS_OTHER_FLUSH_MODE_NONE, wb_flush_id,
+                      cs_defer(csf->sb.all_iters_mask, MALI_SB_DEFERRED_FLUSH));
+   }
 }
 
 void

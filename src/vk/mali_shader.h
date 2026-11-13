@@ -108,6 +108,10 @@ struct mali_graphics_sysvals {
        * Draw descriptor's offset_start. It fills padding, so the other
        * words keep their offsets. */
       int32_t raw_vertex_offset;
+      /* gl_DrawID: the draw's index in an indirect call of several draws,
+       * which the indirect draw paths write per draw; 0 otherwise. */
+      uint32_t draw_id;
+      uint32_t draw_id_pad;
    } vs;
    union {
       struct {

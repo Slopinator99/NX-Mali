@@ -87,6 +87,12 @@ struct mali_desc_state {
    struct mali_descriptor_set *sets[MALI_MAX_SETS];
    uint32_t dyn_offsets[MALI_MAX_SETS][MALI_MAX_DYNAMIC_BUFFERS];
    struct mali_descriptor_set push[MALI_MAX_SETS];
+   /* A regular vkCmdBindDescriptorSets snapshots its set here (a copy of
+    * the slots in command memory plus the dynamic-buffer addresses), so a
+    * draw recorded against it keeps reading that memory even if the pool
+    * set is updated or reused while it is still executing — the same
+    * guarantee a push descriptor's fresh block gives. sets[] points here. */
+   struct mali_descriptor_set bound[MALI_MAX_SETS];
 };
 
 /*
@@ -316,6 +322,9 @@ struct mali_gfx_draw_state {
    /* The last values the FAU blocks were built with. */
    int32_t first_vertex;
    uint32_t base_instance;
+   /* gl_DrawID of the FAU blocks built next: 0, but while an indirect draw
+    * path builds a draw's own block (mali_shader.h vs.draw_id). */
+   uint32_t draw_id;
    uint64_t blend_descs[8];         /* fs.blend_descs, from the last blend build */
    uint32_t blend_shader_mask;      /* targets blended by a shader, last blend build */
 
@@ -569,6 +578,13 @@ enum mali_meta_fs_op {
                                 * MALI_META_QUERY_ROW), what the compute copy
                                 * writes (build_query_copy_nir); no colour
                                 * output, render target 0 only, no target. */
+   MALI_META_FS_RESOLVE,       /* inside the area: texture 0's resolve at
+                                * the source texel (the fragment's position
+                                * + copy_delta) — the average of its
+                                * resolve_samples samples for a float or
+                                * normalized source, one sample for an
+                                * integer source; outside, fetch texture 1
+                                * (the target itself). Render target 0 only. */
 };
 
 /* MALI_META_FS_QUERY: queries per row of the pass. */
@@ -591,6 +607,9 @@ struct mali_meta_fs_key {
     * an AFBC target is written in (dst) or an AFBC source read in (src). */
    uint8_t copy_dst_fmt, copy_src_fmt;
    uint8_t query_reports;      /* QUERY: 64-bit counters summed per query */
+   /* RESOLVE: samples of texture 0 (2, 4, 8 or 16), the count the shader
+    * averages over. */
+   uint8_t resolve_samples;
 };
 
 /*
@@ -645,9 +664,10 @@ struct mali_meta_fs_push {
          uint32_t query_count, query_flags, query_pad;
       };
    };
-   /* COPY: source block = fragment position + delta (in blocks); a raw
-    * source surface is addressed as the raw compute copy does
-    * (mali_meta_copy_push), its block (0, 0) of layer 0 at copy_src. */
+   /* COPY: source block = fragment position + delta (in blocks); RESOLVE:
+    * source texel = fragment position + delta. A raw source surface is
+    * addressed as the raw compute copy does (mali_meta_copy_push), its
+    * block (0, 0) of layer 0 at copy_src. */
    int32_t copy_delta[2];
    uint32_t copy_row_stride;
    uint32_t copy_tile_shift;
