@@ -51,6 +51,15 @@ with shader depth writes, bindless textures, a few formats. There is also an
 unresolved rare single-frame flicker; the diagnostic code for it is still
 compiled in.
 
+## Roadmap
+
+- **Support for other Mali devices.** Only the Mali-G615 (Anbernic RG 557) has been
+  tested so far. The library already builds for other architectures, but nothing
+  beyond the G615 is verified: for example the Mali-G76 (v7, job manager), and the
+  v9, v10 and other v11 parts listed above. The goal is to boot and test Eden games
+  on them, fix what breaks per architecture, and record which GPUs work. Testers
+  with other Mali devices are welcome.
+
 ## Building
 
 The driver builds against Mesa sources checked out at `mesa/`: branch
