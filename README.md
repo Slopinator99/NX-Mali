@@ -1,6 +1,6 @@
 # NX-Mali
 
-NX-Mali (v0.0.3) is a Vulkan driver for Arm Mali GPUs (kbase kernel driver, command-stream
+NX-Mali (v0.0.4-early) is a Vulkan driver for Arm Mali GPUs (kbase kernel driver, command-stream
 frontend), aimed at running **Nintendo Switch games in the
 [Eden](https://git.eden-emu.dev/eden-emu/eden) emulator** on Android devices
 and handhelds that ship Mali GPUs. It is installed like any custom GPU driver

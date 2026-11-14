@@ -14,7 +14,7 @@
 project(
   'nx-mali',
   ['c', 'cpp'],
-  version : '0.0.3',
+  version : '0.0.4-early',
   license : 'MIT',
   meson_version : '>= 1.7.0',
   default_options : [
