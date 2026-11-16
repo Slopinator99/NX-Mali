@@ -14,7 +14,7 @@
 project(
   'nx-mali',
   ['c', 'cpp'],
-  version : '0.0.4-early',
+  version : '0.0.4-sync',
   license : 'MIT',
   meson_version : '>= 1.7.0',
   default_options : [
@@ -31,9 +31,9 @@ project(
 # Every arch we generate genxml packers and a pixel-format library for, and
 # build the per-arch vk/ files for (src/meson.build), Mesa numbering: 7 for
 # the G52's and 9 for the G57's job-manager back half, 10 for the G610's
-# and G710's and 11 for the G615's command-stream back half. The device's
-# arch picks one at vkCreateDevice.
-pan_archs = [7, 9, 10, 11]
+# and G710's, 11 for the G615's and 12 for the G720's command-stream back
+# half. The device's arch picks one at vkCreateDevice.
+pan_archs = [7, 9, 10, 11, 12]
 
 # The arch the tests and the host-side tools build their command-stream
 # code for when they need one: the G615's.
@@ -54,7 +54,7 @@ rust = import('rust')
 # Mesa: branch malisx2 of github.com/bmdhacks/armsx2-turnip (upstream Mesa
 # plus our kraid changes) at this commit, checked out (or symlinked) at
 # mesa/. Only the sources are used; Mesa's own build is not run.
-mesa_commit = '45ff8fac44d9132118d0dddd2ff49f5d827533fb'
+mesa_commit = 'b5f8787e44083b4840f605b595e79fcf61077175'
 if not fs.is_dir('mesa' / 'src' / 'panfrost')
   error('''Mesa is missing. Fetch it with:
   git init mesa && git -C mesa fetch --depth 1 https://github.com/bmdhacks/armsx2-turnip.git @0@ && git -C mesa checkout FETCH_HEAD'''.format(mesa_commit))

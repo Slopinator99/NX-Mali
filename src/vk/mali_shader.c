@@ -204,6 +204,11 @@ lower_sysvals(nir_builder *b, nir_intrinsic_instr *intr, void *data)
    case nir_intrinsic_load_base_instance:
       val = load_sysval(b, graphics, bit_size, vs.base_instance);
       break;
+#if PAN_ARCH < 9
+   case nir_intrinsic_load_draw_id:
+      val = load_sysval(b, graphics, bit_size, draw_id);
+      break;
+#endif
    case nir_intrinsic_load_noperspective_varyings_pan:
       val = load_sysval(b, graphics, bit_size, vs.noperspective_varyings);
       break;
@@ -1320,6 +1325,107 @@ lower_nir(struct mali_device *dev, nir_shader *nir, const struct mali_shader_com
    return VK_SUCCESS;
 }
 
+#if PAN_ARCH == 7
+/*
+ * A v7 vertex shader that writes memory runs for every vertex of the index
+ * range (no IDVS). Its stores and atomics are kept to the vertices the
+ * draw's indices name: the bit of the raw vertex id (index - min) in the
+ * vs_ref_mask bitmask, every vertex when the mask address is 0.
+ */
+static bool
+is_vs_side_effect(const nir_intrinsic_instr *intr)
+{
+   switch (intr->intrinsic) {
+   case nir_intrinsic_store_deref:
+      return nir_deref_mode_may_be(nir_src_as_deref(intr->src[0]),
+                                   nir_var_mem_ssbo | nir_var_mem_global | nir_var_image);
+   case nir_intrinsic_deref_atomic:
+   case nir_intrinsic_deref_atomic_swap:
+      return nir_deref_mode_may_be(nir_src_as_deref(intr->src[0]),
+                                   nir_var_mem_ssbo | nir_var_mem_global);
+   case nir_intrinsic_image_deref_store:
+   case nir_intrinsic_image_deref_atomic:
+   case nir_intrinsic_image_deref_atomic_swap:
+   case nir_intrinsic_image_store:
+   case nir_intrinsic_image_atomic:
+   case nir_intrinsic_image_atomic_swap:
+   case nir_intrinsic_bindless_image_store:
+   case nir_intrinsic_bindless_image_atomic:
+   case nir_intrinsic_bindless_image_atomic_swap:
+   case nir_intrinsic_store_ssbo:
+   case nir_intrinsic_ssbo_atomic:
+   case nir_intrinsic_ssbo_atomic_swap:
+   case nir_intrinsic_store_global:
+   case nir_intrinsic_global_atomic:
+   case nir_intrinsic_global_atomic_swap:
+      return true;
+   default:
+      return false;
+   }
+}
+
+static bool
+v7_guard_vs_stores(nir_shader *nir)
+{
+   nir_function_impl *impl = nir_shader_get_entrypoint(nir);
+   struct util_dynarray list;
+   util_dynarray_init(&list, NULL);
+   nir_foreach_block(block, impl) {
+      nir_foreach_instr(instr, block) {
+         if (instr->type == nir_instr_type_intrinsic &&
+             is_vs_side_effect(nir_instr_as_intrinsic(instr)))
+            util_dynarray_append_typed(&list, nir_intrinsic_instr *,
+                                       nir_instr_as_intrinsic(instr));
+      }
+   }
+   if (!list.size) {
+      util_dynarray_fini(&list);
+      return false;
+   }
+
+   nir_builder b = nir_builder_at(nir_before_impl(impl));
+   nir_def *mask = load_sysval(&b, graphics, 64, vs_ref_mask);
+   nir_def *raw = nir_load_raw_vertex_id(&b);
+   nir_def *has_mask = nir_ine_imm(&b, mask, 0);
+   /* The phi's other source must be defined before the if. */
+   nir_def *all = nir_imm_true(&b);
+   nir_push_if(&b, has_mask);
+   nir_def *word = nir_load_global(&b, 1, 32,
+                                   nir_iadd(&b, mask, nir_u2u64(&b, nir_imul_imm(&b, nir_ushr_imm(&b, raw, 5), 4))),
+                                   .align_mul = 4);
+   nir_def *bit = nir_i2b(&b, nir_iand_imm(&b, nir_ushr(&b, word, nir_iand_imm(&b, raw, 31)), 1));
+   nir_pop_if(&b, NULL);
+   nir_def *ref = nir_if_phi(&b, bit, all);
+
+   util_dynarray_foreach(&list, nir_intrinsic_instr *, it) {
+      nir_intrinsic_instr *intr = *it;
+      b.cursor = nir_before_instr(&intr->instr);
+      nir_def *undef = NULL, *tmp = NULL;
+      const bool has_def = nir_intrinsic_infos[intr->intrinsic].has_dest;
+      if (has_def) {
+         /* The result's uses go to a placeholder first, then to the phi
+          * (nir_def_rewrite_uses_after needs the def and the phi in one
+          * block). */
+         undef = nir_undef(&b, intr->def.num_components, intr->def.bit_size);
+         tmp = nir_undef(&b, intr->def.num_components, intr->def.bit_size);
+         nir_def_rewrite_uses(&intr->def, tmp);
+      }
+      nir_push_if(&b, ref);
+      nir_instr_remove(&intr->instr);
+      nir_builder_instr_insert(&b, &intr->instr);
+      nir_pop_if(&b, NULL);
+      if (has_def) {
+         nir_def *phi = nir_if_phi(&b, &intr->def, undef);
+         nir_def_rewrite_uses(tmp, phi);
+         nir_instr_remove(nir_def_instr(tmp));
+      }
+   }
+   util_dynarray_fini(&list);
+   nir_progress(true, impl, nir_metadata_none);
+   return true;
+}
+#endif
+
 static unsigned
 io_type_size(const struct glsl_type *type, bool bindless)
 {
@@ -2267,12 +2373,17 @@ shader_upload(struct mali_device *dev, struct mali_shader *s)
    }
 
    /* Vertex: position for points, position for everything else (the
-    * point-size write patched out), then the varying shader. */
+    * point-size write patched out), then the varying shader. v12 compiles
+    * position and varyings into one program (IDVS2, panvk's all_points and
+    * all_triangles), so both slots are that program and there is no
+    * varying shader. */
    const uint64_t pos_offsets[2] = { 0, s->info.vs.no_psiz_offset };
    for (unsigned i = 0; i < 2; i++) {
       pan_pack(&spds[i], SHADER_PROGRAM, cfg) {
          cfg.stage = MALI_SHADER_STAGE_VERTEX;
+#if PAN_ARCH < 12
          cfg.vertex_warp_limit = MALI_WARP_LIMIT_HALF;
+#endif
          cfg.register_allocation = register_allocation(s->info.work_reg_count);
          cfg.binary = code + pos_offsets[i];
          cfg.preload.r48_r63 = s->info.preload >> 48;
@@ -2281,6 +2392,7 @@ shader_upload(struct mali_device *dev, struct mali_shader *s)
       s->spd[MALI_SPD_POS_POINTS + i] = s->spd_mem.gpu_va + i * MALI_SPD_SIZE;
    }
 
+#if PAN_ARCH < 12
    if (s->info.vs.secondary_enable) {
       pan_pack(&spds[2], SHADER_PROGRAM, cfg) {
          cfg.stage = MALI_SHADER_STAGE_VERTEX;
@@ -2293,6 +2405,7 @@ shader_upload(struct mali_device *dev, struct mali_shader *s)
       }
       s->spd[MALI_SPD_VARYING] = s->spd_mem.gpu_va + 2 * MALI_SPD_SIZE;
    }
+#endif
 
    return VK_SUCCESS;
 #endif /* PAN_ARCH >= 9 */
@@ -2424,6 +2537,12 @@ MALI_PER_ARCH(shader_compile)(struct mali_device *dev,
       }
       nir_assign_io_var_locations(nir, nir_var_shader_out);
       lower_nir_io(nir);
+#if PAN_ARCH == 7
+      /* Stores of vertices the indices do not name: v7 runs a vertex
+       * shader over the whole index range (no IDVS). */
+      if (!info->meta && nir->info.writes_memory)
+         NIR_PASS(_, nir, v7_guard_vs_stores);
+#endif
       NIR_PASS(_, nir, nir_opt_constant_folding);
 
       pan_varying_collect_formats(&varying_layout, nir, inputs.arch);
